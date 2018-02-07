@@ -69,7 +69,7 @@ class AchFile(object):
             desc_date='',
             eff_ent_date=eff_ent_date.strftime('%y%m%d'),  # YYMMDD
             orig_stat_code='1',
-            orig_dfi_id=self.settings['immediate_dest'][:8],
+            orig_dfi_id=self.settings['immediate_org'][:8],
             company_name=self.settings['immediate_org_name']
         )
 
@@ -91,7 +91,7 @@ class AchFile(object):
             entry.dfi_acnt_num = record['account_number']
             entry.amount = int(round(float(record['amount']) * 100))
             entry.ind_name = record['name'].upper()[:22]
-            entry.trace_num = self.settings['immediate_dest'][:8] \
+            entry.trace_num = self.settings['immediate_org'][:8] \
                 + entry.validate_numeric_field(entry_counter, 7)
 
             entries.append((entry, record.get('addenda', [])))
