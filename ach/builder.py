@@ -34,6 +34,28 @@ class AchFile(object):
                 immediate_dest_name", and "immediate_org_name"'
             )
 
+        self.balance = settings.get('balance', False)
+
+        if self.balance:
+            try:
+                self.balance_account_number = settings['balance_account_number']
+            except KeyError:
+                raise Exception(
+                    'balance_account_number not set with balance = True'
+                )
+            try:
+                self.balance_routing_number = settings['balance_routing_number']
+            except KeyError:
+                raise Exception(
+                    'balance_routing_number not set with balance = True'
+                )
+            try:
+                self.balance_account_type = settings['balance_account_type']
+            except KeyError:
+                raise Exception(
+                    'balance_account_type not set with balance = True'
+                )
+
         self.batches = list()
 
     def add_batch(self, std_ent_cls_code, batch_entries=None,
@@ -75,30 +97,23 @@ class AchFile(object):
         )
 
         entries = list()
-        entry_counter = 1
 
         for record in batch_entries:
 
             entry = EntryDetail(std_ent_cls_code)
-
-            entry.transaction_code = record.get('type')
-            entry.recv_dfi_id = record.get('routing_number')
-
-            if len(record['routing_number']) < 9:
-                entry.calc_check_digit()
-            else:
-                entry.check_digit = record['routing_number'][8]
-
-            entry.dfi_acnt_num = record['account_number']
-            entry.amount = int(round(float(record['amount']) * 100))
-            entry.ind_name = record['name'].upper()[:22]
+            entry.build_from_dict(record)
             entry.trace_num = self.settings['immediate_org'][:8] \
-                + entry.validate_numeric_field(entry_counter, 7)
-
+                + entry.validate_numeric_field(len(entries) + 1, 7)
             entries.append((entry, record.get('addenda', [])))
-            entry_counter += 1
 
-        self.batches.append(FileBatch(batch_header, entries))
+        self.batches.append(FileBatch(
+            batch_header, 
+            entries, 
+            balance=self.balance, 
+            balance_account_number=self.balance_account_number, 
+            balance_routing_number=self.balance_routing_number,
+            balance_account_type=self.balance_account_type
+        ))
         self.set_control()
 
     def set_control(self):
@@ -226,7 +241,7 @@ class FileBatch(object):
     BatchControl (1)
     """
 
-    def __init__(self, batch_header, entries):
+    def __init__(self, batch_header, entries, balance=False, balance_routing_number=None, balance_account_number=None, balance_account_type='2'):
         """
         args: batch_header (BatchHeader), entries (List[FileEntry])
         """
@@ -235,6 +250,34 @@ class FileBatch(object):
 
         self.batch_header = batch_header
         self.entries = []
+
+        # Optionally generate a balanced batch
+        if balance:
+            file_entries = [FileEntry(entry, addenda) for entry, addenda in entries]
+            credit_amount = self.get_credit_amount(file_entries)
+            debit_amount = self.get_debit_amount(file_entries)
+
+            offset_details = {
+                'type': str(balance_account_type)[0],  #first digit of transaction type specifies the account type (savings or checking)
+                'routing_number': balance_routing_number,
+                'account_number': balance_account_number,
+                'name': 'Offset'
+            }
+
+            if credit_amount and not debit_amount:
+                offset_details['type'] += '7' 
+                offset_details['amount'] = int(credit_amount) / 100
+            elif debit_amount and not credit_amount:
+                offset_details['type'] += '2'
+                offset_details['amount'] = int(debit_amount) / 100
+            else:
+                raise Exception('Balance enabled with mixed credit and debit batch')
+
+            origin_routing_number = batch_header.orig_dfi_id
+            offset = EntryDetail()
+            offset.build_from_dict(offset_details)
+            offset.trace_num = origin_routing_number + offset.validate_numeric_field(len(entries) + 1, 7)
+            entries.append((offset, []))
 
         for entry, addenda in entries:
             entadd_count += 1

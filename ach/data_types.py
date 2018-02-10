@@ -703,6 +703,29 @@ class EntryDetail(Ach):
 
         self.check_digit = int((nearest_10 * 10) - tmp_num)
 
+    def build_from_dict(self, record_dict):
+        """
+        record_dict: dict
+        {
+            'type': 22,
+            'routing_number': 121042882,
+            'account_number': 5566677888,
+            'amount': 100,
+            'name': Real Person
+        }
+        """
+        self.transaction_code = record_dict.get('type')
+        self.recv_dfi_id = record_dict.get('routing_number')
+
+        if len(record_dict['routing_number']) < 9:
+            self.calc_check_digit()
+        else:
+            self.check_digit = record_dict['routing_number'][8]
+
+        self.dfi_acnt_num = record_dict['account_number']
+        self.amount = int(round(float(record_dict['amount']) * 100))
+        self.ind_name = record_dict['name'].upper()[:22]
+
 
 class AddendaRecord(Ach):
 
